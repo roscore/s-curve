@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'">
+<meta name="color-scheme" content="light dark">
+<title>S-curve motion profile lab</title>
+<link data-trunk rel="rust" href="crates/sc_web/Cargo.toml" data-wasm-opt="z">
+<link data-trunk rel="copy-file" href="web/boot.js">
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --fg: #1d2025; --muted: #5d6470; --line: #d9dce2;
+  --accent: #2f7fe0; --ok: #1f8f4e; --bad: #c4421a; --field: #fbfbfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1d2027; --fg: #e3e6ec; --muted: #9aa2b1; --line: #343944;
+    --accent: #5ea3ff; --ok: #4cc583; --bad: #ff8a5c; --field: #252932;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 18px; margin: 0; }
+header p { margin: 0; color: var(--muted); flex: 1 1 260px; }
+header .right { display: flex; gap: 8px; align-items: center; }
+main { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; padding: 12px 16px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 0 8px; }
+.side { display: flex; flex-direction: column; gap: 12px; }
+label.f { display: grid; grid-template-columns: 1fr 96px 52px; align-items: center; gap: 6px; margin: 5px 0; }
+label.f > span:first-child { font-size: 13px; }
+label.f > select { grid-column: span 2; }
+.u { color: var(--muted); font-size: 12px; }
+input[type=number], select { width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); color: var(--fg); font: inherit; }
+button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); color: var(--fg); cursor: pointer; }
+button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.err { color: var(--bad); font-size: 13px; min-height: 0; margin: 0; }
+.off { display: none !important; }
+.viewwrap { position: relative; height: 440px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: #000; }
+#gl { width: 100%; height: 100%; display: block; touch-action: none; }
+#nogl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #ddd; }
+.bar { position: absolute; display: flex; flex-wrap: wrap; gap: 4px; }
+.bar button { padding: 2px 8px; font-size: 12px; background: rgba(20, 22, 28, .7); color: #eee; border-color: rgba(255, 255, 255, .2); }
+.bar button[aria-pressed=true] { background: rgba(47, 127, 224, .85); }
+.bar.tl { top: 8px; left: 8px; } .bar.tr { top: 8px; right: 8px; }
+#hud { position: absolute; left: 8px; bottom: 8px; margin: 0; padding: 6px 8px; font: 12px/1.35 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: #f0f0f0; background: rgba(10, 12, 16, .65); border-radius: 6px; pointer-events: none; white-space: pre; }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.play { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.play input[type=range] { flex: 1 1 160px; }
+.play select { width: auto; }
+#tlabel { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+td, th { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+td:first-child, th:first-child { text-align: left; color: var(--muted); }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+#plot { width: 100%; height: 420px; display: block; }
+.main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+footer { padding: 4px 16px 20px; color: var(--muted); font-size: 12px; }
+footer p { margin: 4px 0; }
+@media (max-width: 820px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+  .main { order: -1; }
+  .viewwrap { height: 340px; }
+  .bar.tr { top: auto; bottom: 8px; }
+  #plot { height: 380px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1 data-i18n="title">S-curve motion profile lab</h1>
+  <p data-i18n="subtitle"></p>
+  <div class="right">
+    <label><span data-i18n="preset"></span>
+      <select id="preset">
+        <option value="knee" data-i18n="preset_knee"></option>
+        <option value="gantry" data-i18n="preset_gantry"></option>
+        <option value="custom" data-i18n="preset_custom"></option>
+      </select>
+    </label>
+    <button id="lang" data-i18n="lang"></button>
+  </div>
+</header>
+<main>
+  <div class="side">
+    <section>
+      <h2 data-i18n="sec_move"></h2>
+      <label class="f"><span data-i18n="mode"></span>
+        <select id="mode"><option value="rot" data-i18n="mode_rot"></option><option value="lin" data-i18n="mode_lin"></option></select></label>
+      <label class="f"><span data-i18n="kind"></span>
+        <select id="kind"><option value="s" data-i18n="kind_s"></option><option value="trap" data-i18n="kind_t"></option></select></label>
+      <label class="f"><span data-i18n="d"></span><input id="d" type="number" step="any"><span class="u" data-unit="pos"></span></label>
+      <label class="f"><span data-i18n="v"></span><input id="v" type="number" step="any" min="0"><span class="u" data-unit="vel"></span></label>
+      <label class="f"><span data-i18n="a"></span><input id="a" type="number" step="any" min="0"><span class="u" data-unit="acc"></span></label>
+      <label class="f"><span data-i18n="j"></span><input id="j" type="number" step="any" min="0"><span class="u" data-unit="jerk"></span></label>
+      <p class="note" data-i18n="rest"></p>
+    </section>
+    <section>
+      <h2 data-i18n="sec_load"></h2>
+      <label class="f"><span data-i18n="inertia"></span><input id="inertia" type="number" step="any" min="0"><span class="u" data-unit="inertia"></span></label>
+      <label class="f"><span data-i18n="load"></span><input id="load" type="number" step="any"><span class="u" data-unit="load"></span></label>
+      <label class="f"><span data-i18n="ratio"></span><input id="ratio" type="number" step="any" min="0"><span class="u" data-unit="ratio"></span></label>
+      <label class="f"><span data-i18n="eff"></span><input id="eff" type="number" step="any" min="0" max="1"><span class="u"></span></label>
+      <label class="f"><span data-i18n="rated"></span><input id="rated" type="number" step="any" min="0"><span class="u">N·m</span></label>
+    </section>
+    <section>
+      <h2 data-i18n="sec_sync"></h2>
+      <label><input id="sync" type="checkbox"> <span data-i18n="sync"></span></label>
+      <div id="sync-row">
+        <label class="f"><span data-i18n="d2"></span><input id="d2" type="number" step="any"><span class="u" data-unit="pos"></span></label>
+        <p class="note" data-i18n="sync_note"></p>
+      </div>
+    </section>
+  </div>
+  <div class="main">
+    <section>
+      <div class="viewwrap">
+        <canvas id="gl"></canvas>
+        <div id="nogl" class="off" data-i18n="nogl"></div>
+        <div id="overlay">
+          <div class="bar tl">
+            <button id="tg-ghost" aria-pressed="true" data-i18n="tg_ghost"></button>
+            <button id="tg-vel" aria-pressed="true" data-i18n="tg_vel"></button>
+            <button id="tg-tint" aria-pressed="true" data-i18n="tg_tint"></button>
+            <button id="tg-axis2" aria-pressed="true" data-i18n="tg_axis2"></button>
+          </div>
+          <div class="bar tr">
+            <button id="vp-persp" data-i18n="vp_persp"></button>
+            <button id="vp-top" data-i18n="vp_top"></button>
+            <button id="vp-side" data-i18n="vp_side"></button>
+            <button id="vp-front" data-i18n="vp_front"></button>
+          </div>
+          <pre id="hud"></pre>
+        </div>
+      </div>
+      <div class="play">
+        <button id="play"></button>
+        <label><span data-i18n="speed"></span>
+          <select id="speed"><option value="0.1">0.1×</option><option value="0.25" selected>0.25×</option><option value="1">1×</option></select>
+        </label>
+        <input id="time" type="range" min="0" max="1000" step="1" value="0" aria-label="time">
+        <span id="tlabel"></span>
+        <label><input id="loop" type="checkbox" checked> <span data-i18n="loop"></span></label>
+      </div>
+      <p class="hint" data-i18n="hint"></p>
+    </section>
+    <section>
+      <h2 data-i18n="sec_results"></h2>
+      <p id="err" class="err"></p>
+      <div id="results"></div>
+    </section>
+    <section>
+      <h2 data-i18n="sec_plots"></h2>
+      <canvas id="plot"></canvas>
+      <p class="note" data-i18n="note_j"></p>
+    </section>
+  </div>
+</main>
+<footer>
+  <p data-i18n="disclaimer"></p>
+  <p data-i18n="footer"></p>
+</footer>
+</body>
+</html>
