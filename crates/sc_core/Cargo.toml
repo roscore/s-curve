@@ -1,0 +1,8 @@
+[package]
+name = "sc_core"
+description = "Rest-to-rest trapezoidal and jerk-limited (7-segment S-curve) motion profiles with load torque estimates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
